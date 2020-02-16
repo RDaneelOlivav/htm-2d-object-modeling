@@ -10,6 +10,9 @@ black = "*"
 
 [packages]
 PyYAML = "*"
+numpy = "*"
+matplotlib = "*"
+htm-core = {index = "https://test.pypi.org/simple/",extras = ["examples"],version = "*"}
 
 [requires]
 python_version = "3.7"
