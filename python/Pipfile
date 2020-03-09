@@ -12,8 +12,11 @@ black = "*"
 PyYAML = "*"
 numpy = "*"
 matplotlib = "*"
-htm-core = {index = "https://test.pypi.org/simple/",extras = ["examples"],version = "*"}
 tk = "*"
+mock = "*"
+pytest = "==4.6.5"
+hexy = "*"
+prettytable = "*"
 
 [requires]
 python_version = "3.7"
