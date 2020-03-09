@@ -13,6 +13,7 @@ PyYAML = "*"
 numpy = "*"
 matplotlib = "*"
 htm-core = {index = "https://test.pypi.org/simple/",extras = ["examples"],version = "*"}
+tk = "*"
 
 [requires]
 python_version = "3.7"
