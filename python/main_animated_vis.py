@@ -16,9 +16,9 @@ from htm.bindings.algorithms import SpatialPooler
 from htm.bindings.sdr import SDR, Metrics
 from htm.encoders.rdse import RDSE, RDSE_Parameters
 
-# Panda vis
 from pandaComm.pandaServer import PandaServer
 from pandaComm.dataExchange import ServerData, dataHTMObject, dataLayer, dataInput
+
 
 _EXEC_DIR = os.path.dirname(os.path.abspath(__file__))
 #go one folder up and then into the objects folder
@@ -29,43 +29,71 @@ OBJECT_FILENAME = 'a.yml'#what object to load
 class AnimateSDR2D(object):
 
 	def __init__(self, agent_x_init=3, agent_y_init=4):
-
-		# Start HtmVisualiser
-		self._pandaServer = PandaServer()
-		self._pandaServer.Start()
-		BuildPandaSystem()
-
 		# load model parameters from file
 		f = open('modelParams.cfg','r').read()
-		modelParams = eval(f)
+		self.modelParams = eval(f)
 
 		# set up system
-		self.SystemSetup(modelParams)
+		self.SystemSetup(self.modelParams)
 
 		# put agent in the environment
 		self.agent.set_env(self.env,agent_x_init,agent_y_init)
 
+
+
+
 	def __del__(self):
-		print("Deleting Class AnimateSDR2D...")
-		self._pandaServer.MainThreadQuitted()
-		print("Deleting Class AnimateSDR2D...DONE")
+		self.del_htmvis()
 
-	def BuildPandaSystem():
+	def init_htmvis(self, columnCount, cellsPerColumn):
 
-	    self._serverData = ServerData()
-	    self._serverData.HTMObjects["HTM1"] = dataHTMObject()
-	    self._serverData.HTMObjects["HTM1"].inputs["SL_Consumption"] = dataInput()
-	    self._serverData.HTMObjects["HTM1"].inputs["SL_TimeOfDay"] = dataInput()
+		self.pandaServer = PandaServer() # globally for example
+		self.pandaServer.Start()
+		self.BuildPandaSystem(columnCount=columnCount,
+						cellsPerColumn=cellsPerColumn)
 
-	    self._serverData.HTMObjects["HTM1"].layers["SensoryLayer"] = dataLayer(
-	        default_parameters["sp"]["columnCount"],
-	        default_parameters["tm"]["cellsPerColumn"],
-	    )
-	    self._serverData.HTMObjects["HTM1"].layers["SensoryLayer"].proximalInputs = [
-	        "SL_Consumption",
-	        "SL_TimeOfDay",
-	    ]
+	def BuildPandaSystem(self, columnCount,cellsPerColumn):
 
+		self.serverData = ServerData()
+		self.serverData.HTMObjects["HTM1"] = dataHTMObject()
+		self.serverData.HTMObjects["HTM1"].inputs["S_ElementSensor"] = dataInput()
+
+		self.serverData.HTMObjects["HTM1"].layers["SensoryLayer"] = dataLayer(columnCount=columnCount,
+																		cellsPerColumn=cellsPerColumn)
+
+		self.serverData.HTMObjects["HTM1"].layers["SensoryLayer"].proximalInputs = ["S_ElementSensor",]
+
+	def UpdateHtmVisValues(self, sensorValue, sensorSDR, activeCellsSDR, predictiveCellsSDR, spatial_pooler_object, temporal_pooler_object=None):
+
+		# ------------------HTMpandaVis----------------------
+
+		# fill up values
+		self.serverData.HTMObjects["HTM1"].inputs["S_ElementSensor"].stringValue = "sensorValue: {:}".format(sensorValue)
+		self.serverData.HTMObjects["HTM1"].inputs["S_ElementSensor"].bits = sensorSDR.sparse
+		self.serverData.HTMObjects["HTM1"].inputs["S_ElementSensor"].count = sensorSDR.size
+
+		self.serverData.HTMObjects["HTM1"].layers["SensoryLayer"].activeColumns = activeCellsSDR.sparse
+		# TODO: This wont work until we add the temporal pooler
+		#self.serverData.HTMObjects["HTM1"].layers["SensoryLayer"].winnerCells = temporal_pooler_object.getWinnerCells().sparse
+		self.serverData.HTMObjects["HTM1"].layers["SensoryLayer"].predictiveCells = predictiveCellsSDR.sparse
+
+		self.pandaServer.serverData = self.serverData
+
+		self.pandaServer.spatialPoolers["HTM1"] = spatial_pooler_object
+		#self.pandaServer.temporalMemories["HTM1"] = temporal_pooler_object
+		self.pandaServer.NewStateDataReady()
+
+		print("One step finished")
+		while not self.pandaServer.runInLoop and not self.pandaServer.runOneStep:
+			pass
+		self.pandaServer.runOneStep = False
+		print("Proceeding one step...")
+
+		# ------------------HTMpandaVis----------------------
+
+	def del_htmvis(self):
+
+		self.pandaServer.MainThreadQuitted()
 
 	def SystemSetup(self, parameters,verbose=True):
 		#global agent, sensorEncoder, env, sensorLayer_sp, sensorLayer_sp_activeColumns
@@ -134,7 +162,14 @@ class AnimateSDR2D(object):
 		#  )
 		#  tm_info = Metrics( [tm.numberOfCells()], 999999999 )
 
-	def SystemCalculate(self):
+		# We initialise the HTMVIS
+		# TODO: Add the TM support.
+		self.init_htmvis(columnCount=spParams["columnCount"], cellsPerColumn=1)
+
+	def SystemCalculate(self, plot=False):
+		"""
+		plot: We tel if we want a Matplot lib of a HTMvis
+		"""
 		#global sensorLayer_sp,arr
 
 		# encode sensor data to SDR--------------------------------------------------
@@ -155,10 +190,18 @@ class AnimateSDR2D(object):
 		# Execute Spatial Pooling algorithm over input space.
 		self.sensorLayer_sp.compute(sensorSDR, False, self.sensorLayer_sp_activeColumns)
 
-		self.plotBinaryMap("Input SDR", sensorSDR.size, sensorSDR.dense, subplot=121)
-
-		self.plotBinaryMap("Sensor layer columns activation", self.sensorLayer_sp.getColumnDimensions()[0], self.sensorLayer_sp_activeColumns.dense, subplot=122, drawPlot=True)
-
+		if plot:
+			self.plotBinaryMap("Input SDR", sensorSDR.size, sensorSDR.dense, subplot=121)
+			self.plotBinaryMap("Sensor layer columns activation", self.sensorLayer_sp.getColumnDimensions()[0], self.sensorLayer_sp_activeColumns.dense, subplot=122, drawPlot=True)
+		else:
+			activeCellsSDR=self.sensorLayer_sp_activeColumns
+			# TODO: Deberia veni del TM, no de las active
+			predictiveCellsSDR=self.sensorLayer_sp_activeColumns
+			self.UpdateHtmVisValues(sensorValue=sensedFeature,
+									sensorSDR=sensorSDR,
+									activeCellsSDR=activeCellsSDR,
+									predictiveCellsSDR=predictiveCellsSDR,
+									spatial_pooler_object=self.sensorLayer_sp)
 
 	def plotBinaryMap(self, name, size, data, subplot=0, drawPlot=False):
 		plotW = math.ceil(math.sqrt(size))
@@ -194,7 +237,7 @@ class AnimateSDR2D(object):
 			print("Iteration:"+str(i+1))
 			self.SystemCalculate()
 			self.agent.moveDir(Direction.RIGHT)
-			time.sleep(1)
+			#time.sleep(1)
 
 
 

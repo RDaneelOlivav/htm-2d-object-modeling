@@ -4,6 +4,7 @@ from htm.bindings.sdr import SDR
 #import htm.bindings.sdr
 #help(htm.bindings.sdr.SDR)
 #help(htm.bindings.algorithms.TemporalMemory)
+#help(htm.bindings.algorithms.SpatialPooler)
 from htm.algorithms import TemporalMemory as TM
 
 """
