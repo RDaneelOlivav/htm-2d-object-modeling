@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 from matplotlib import animation
 
 from htm.bindings.algorithms import SpatialPooler
+from htm.bindings.algorithms import TemporalMemory
 from htm.bindings.sdr import SDR, Metrics
 from htm.encoders.rdse import RDSE, RDSE_Parameters
 
@@ -159,7 +160,7 @@ class AnimateSDR2D(object):
 			maxSegmentsPerCell        = tmParams["maxSegmentsPerCell"],
 			maxSynapsesPerSegment     = tmParams["maxSynapsesPerSegment"]
 		)
-		self.tm_info = Metrics( [tm.numberOfCells()], 999999999 )
+		self.tm_info = Metrics( [self.tm.numberOfCells()], 999999999 )
 
 		# We initialise the HTMVIS
 		self.init_htmvis(columnCount=spParams["columnCount"], cellsPerColumn=tmParams["cellsPerColumn"])
@@ -187,17 +188,14 @@ class AnimateSDR2D(object):
 
 		# Execute Spatial Pooling algorithm over input space.
 		self.sensorLayer_sp.compute(sensorSDR, True, self.sensorLayer_sp_activeColumns)
-        sp_info.addData(self.sensorLayer_sp_activeColumns)
+		self.sp_info.addData(self.sensorLayer_sp_activeColumns)
 		activeCellsSDR=self.sensorLayer_sp_activeColumns
 
 		# We compute the TM
-		self.tm.compute(sensorSDR, learn = True)
-		activeCellsSDR = self.tm.getActiveCells()
-		print(str(sensedFeature) + ' |', self.formatSdr(activeCellsSDR), 'Active')
-
+		# Execute Temporal Memory algorithm over active mini-columns.
+		#self.tm.compute(sensorSDR, learn = True)
 		self.tm.activateDendrites(True)
 		predictiveCellsSDR = self.tm.getPredictiveCells()
-		print(format(self.tm.anomaly, '.2f') + ' |', self.formatSdr(predictiveCellsSDR), 'Predicted')
 
 		if plot:
 			self.plotBinaryMap("Input SDR", sensorSDR.size, sensorSDR.dense, subplot=121)
