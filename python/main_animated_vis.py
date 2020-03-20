@@ -63,7 +63,7 @@ class AnimateSDR2D(object):
 
 		self.serverData.HTMObjects["HTM1"].layers["SensoryLayer"].proximalInputs = ["S_ElementSensor",]
 
-	def UpdateHtmVisValues(self, sensorValue, sensorSDR, activeCellsSDR, predictiveCellsSDR, spatial_pooler_object, temporal_pooler_object=None):
+	def UpdateHtmVisValues(self, sensorValue, sensorSDR, activeCellsSDR, predictiveCellsSDR, spatial_pooler_object, temporal_pooler_object):
 
 		# ------------------HTMpandaVis----------------------
 
@@ -73,14 +73,13 @@ class AnimateSDR2D(object):
 		self.serverData.HTMObjects["HTM1"].inputs["S_ElementSensor"].count = sensorSDR.size
 
 		self.serverData.HTMObjects["HTM1"].layers["SensoryLayer"].activeColumns = activeCellsSDR.sparse
-		# TODO: This wont work until we add the temporal pooler
-		#self.serverData.HTMObjects["HTM1"].layers["SensoryLayer"].winnerCells = temporal_pooler_object.getWinnerCells().sparse
+		self.serverData.HTMObjects["HTM1"].layers["SensoryLayer"].winnerCells = temporal_pooler_object.getWinnerCells().sparse
 		self.serverData.HTMObjects["HTM1"].layers["SensoryLayer"].predictiveCells = predictiveCellsSDR.sparse
 
 		self.pandaServer.serverData = self.serverData
 
 		self.pandaServer.spatialPoolers["HTM1"] = spatial_pooler_object
-		#self.pandaServer.temporalMemories["HTM1"] = temporal_pooler_object
+		self.pandaServer.temporalMemories["HTM1"] = temporal_pooler_object
 		self.pandaServer.NewStateDataReady()
 
 		print("One step finished")
@@ -139,32 +138,31 @@ class AnimateSDR2D(object):
 			boostStrength              = spParams["boostStrength"],
 			wrapAround                 = True
 		)
-		sp_info = Metrics(self.sensorLayer_sp.getColumnDimensions(), 999999999 )
+		self.sp_info = Metrics(self.sensorLayer_sp.getColumnDimensions(), 999999999 )
 
 		# Create an SDR to represent active columns, This will be populated by the
 		# compute method below. It must have the same dimensions as the Spatial Pooler.
 		self.sensorLayer_sp_activeColumns = SDR( spParams["columnCount"] )
 
-		#  tmParams = parameters["tm"]
-		#  tm = TemporalMemory(
-		#    columnDimensions          = (spParams["columnCount"],),
-		#    cellsPerColumn            = tmParams["cellsPerColumn"],
-		#    activationThreshold       = tmParams["activationThreshold"],
-		#    initialPermanence         = tmParams["initialPerm"],
-		#    connectedPermanence       = spParams["synPermConnected"],
-		#    minThreshold              = tmParams["minThreshold"],
-		#    maxNewSynapseCount        = tmParams["newSynapseCount"],
-		#    permanenceIncrement       = tmParams["permanenceInc"],
-		#    permanenceDecrement       = tmParams["permanenceDec"],
-		#    predictedSegmentDecrement = 0.0,
-		#    maxSegmentsPerCell        = tmParams["maxSegmentsPerCell"],
-		#    maxSynapsesPerSegment     = tmParams["maxSynapsesPerSegment"]
-		#  )
-		#  tm_info = Metrics( [tm.numberOfCells()], 999999999 )
+		tmParams = parameters["tm"]
+		self.tm = TemporalMemory(
+			columnDimensions          = (spParams["columnCount"],),
+			cellsPerColumn            = tmParams["cellsPerColumn"],
+			activationThreshold       = tmParams["activationThreshold"],
+			initialPermanence         = tmParams["initialPerm"],
+			connectedPermanence       = spParams["synPermConnected"],
+			minThreshold              = tmParams["minThreshold"],
+			maxNewSynapseCount        = tmParams["newSynapseCount"],
+			permanenceIncrement       = tmParams["permanenceInc"],
+			permanenceDecrement       = tmParams["permanenceDec"],
+			predictedSegmentDecrement = 0.0,
+			maxSegmentsPerCell        = tmParams["maxSegmentsPerCell"],
+			maxSynapsesPerSegment     = tmParams["maxSynapsesPerSegment"]
+		)
+		self.tm_info = Metrics( [tm.numberOfCells()], 999999999 )
 
 		# We initialise the HTMVIS
-		# TODO: Add the TM support.
-		self.init_htmvis(columnCount=spParams["columnCount"], cellsPerColumn=1)
+		self.init_htmvis(columnCount=spParams["columnCount"], cellsPerColumn=tmParams["cellsPerColumn"])
 
 	def SystemCalculate(self, plot=False):
 		"""
@@ -188,20 +186,43 @@ class AnimateSDR2D(object):
 		# sensorLayer.proximal = sensorSDR
 
 		# Execute Spatial Pooling algorithm over input space.
-		self.sensorLayer_sp.compute(sensorSDR, False, self.sensorLayer_sp_activeColumns)
+		self.sensorLayer_sp.compute(sensorSDR, True, self.sensorLayer_sp_activeColumns)
+        sp_info.addData(self.sensorLayer_sp_activeColumns)
+		activeCellsSDR=self.sensorLayer_sp_activeColumns
+
+		# We compute the TM
+		self.tm.compute(sensorSDR, learn = True)
+		activeCellsSDR = self.tm.getActiveCells()
+		print(str(sensedFeature) + ' |', self.formatSdr(activeCellsSDR), 'Active')
+
+		self.tm.activateDendrites(True)
+		predictiveCellsSDR = self.tm.getPredictiveCells()
+		print(format(self.tm.anomaly, '.2f') + ' |', self.formatSdr(predictiveCellsSDR), 'Predicted')
 
 		if plot:
 			self.plotBinaryMap("Input SDR", sensorSDR.size, sensorSDR.dense, subplot=121)
 			self.plotBinaryMap("Sensor layer columns activation", self.sensorLayer_sp.getColumnDimensions()[0], self.sensorLayer_sp_activeColumns.dense, subplot=122, drawPlot=True)
 		else:
-			activeCellsSDR=self.sensorLayer_sp_activeColumns
-			# TODO: Deberia veni del TM, no de las active
-			predictiveCellsSDR=self.sensorLayer_sp_activeColumns
 			self.UpdateHtmVisValues(sensorValue=sensedFeature,
 									sensorSDR=sensorSDR,
 									activeCellsSDR=activeCellsSDR,
 									predictiveCellsSDR=predictiveCellsSDR,
-									spatial_pooler_object=self.sensorLayer_sp)
+									spatial_pooler_object=self.sensorLayer_sp,
+									temporal_pooler_object=self.tm)
+
+		#self.print_htm_state_info(enc_info, sp_info, tm_info, sp, tm)
+
+
+	def print_htm_state_info(self, enc_info, sp_info, tm_info, sp, tm):
+		# Print information & statistics about the state of the HTM.
+	    print("Encoded Input", enc_info)
+	    print("")
+	    print("Spatial Pooler Mini-Columns", sp_info)
+	    print(str(sp))
+	    print("")
+	    print("Temporal Memory Cells", tm_info)
+	    print(str(tm))
+	    print("")
 
 	def plotBinaryMap(self, name, size, data, subplot=0, drawPlot=False):
 		plotW = math.ceil(math.sqrt(size))
