@@ -17,6 +17,7 @@ mock = "*"
 pytest = "==4.6.5"
 hexy = "*"
 prettytable = "*"
+catkin-pkg = "*"
 
 [requires]
 python_version = "3.7"
